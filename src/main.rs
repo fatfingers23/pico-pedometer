@@ -3,9 +3,10 @@
 
 mod adxl345;
 mod lcd_lcm1602_i2c;
-use adxl345::Adxl345;
-use defmt::*;
 
+use adxl345::Adxl345;
+use core::sync::atomic::AtomicU32;
+use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_rp::i2c::Config;
@@ -14,6 +15,7 @@ use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Timer};
+use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -22,6 +24,8 @@ type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, I2C0, i2c::Async>>;
 embassy_rp::bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
 });
+
+static STEPS: AtomicU32 = AtomicU32::new(0);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -47,15 +51,22 @@ async fn lcd_task(i2c_bus: &'static I2c1Bus) {
     let mut delay = Delay;
     let lcd_builder = lcd_lcm1602_i2c::Lcd::new(i2c_dev, &mut delay)
         .address(0x27)
-        .cursor_on(true) // no visible cursos
+        .cursor_on(false) // no visible cursos
         .rows(2); // two rows
 
     let mut lcd = lcd_builder.init().await.unwrap();
     let _ = lcd.clear().await;
 
-    let _ = lcd.write_str("No this didn't").await;
-    let _ = lcd.set_cursor(1, 0).await;
-    let _ = lcd.write_str("take 6 hours").await;
+    loop {
+        let steps = STEPS.load(core::sync::atomic::Ordering::Relaxed);
+        //steps bytes
+        let mut steps_str = String::<16>::new();
+        core::fmt::write(&mut steps_str, format_args!("{}", steps)).unwrap();
+        let _ = lcd.set_cursor(0, 0).await;
+        let _ = lcd.write_str("Steps: ").await;
+        let _ = lcd.write_str(steps_str.as_str()).await;
+        Timer::after_secs(1).await;
+    }
 }
 
 #[embassy_executor::task]
@@ -66,7 +77,7 @@ async fn pedometer_task(i2c_bus: &'static I2c1Bus) {
 
     let mut step_count = 0;
     let mut prev_magnitude = 0.0;
-    let threshold = 25.0; // Adjust this threshold based on your need
+    let threshold = 10.0; // Adjust this threshold based on your need
 
     loop {
         //Reading the accelerometer data
@@ -85,7 +96,8 @@ async fn pedometer_task(i2c_bus: &'static I2c1Bus) {
 
                 if accelerometer.detect_step(accel_magnitude, prev_magnitude, threshold) {
                     step_count += 1;
-                    defmt::info!("Step detected! Total steps: {}", step_count);
+                    info!("Step detected! Total steps: {}", step_count);
+                    STEPS.store(step_count, core::sync::atomic::Ordering::Relaxed);
                 }
 
                 prev_magnitude = accel_magnitude;
@@ -97,6 +109,6 @@ async fn pedometer_task(i2c_bus: &'static I2c1Bus) {
             }
         }
 
-        Timer::after_secs(1).await;
+        Timer::after_millis(500).await;
     }
 }
