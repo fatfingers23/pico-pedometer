@@ -1,18 +1,16 @@
-#![no_std]
-
 //This is the lcd-lcm1602-i2c crate, but async for emabassy-rp
 //All rights and credit to the original author
 //https://github.com/KuabeM/lcd-lcm1602-i2c/tree/master
 
-use embassy_rp::i2c::{Async, Error, Instance};
 use embedded_hal_1::delay::DelayNs;
 
 /// API to write to the LCD.
-pub struct Lcd<'a, T: embassy_rp::i2c::Instance, Async: embassy_rp::i2c::Mode, D>
+pub struct Lcd<'a, T, D>
 where
+    T: embedded_hal_async::i2c::I2c,
     D: DelayNs,
 {
-    i2c: &'a mut embassy_rp::i2c::I2c<'a, T, Async>,
+    i2c: T,
     address: u8,
     rows: u8,
     delay: &'a mut D,
@@ -30,7 +28,7 @@ pub enum DisplayControl {
 
 #[derive(Copy, Clone)]
 pub enum Backlight {
-    Off = 0x00,
+    _Off = 0x00,
     On = 0x08,
 }
 
@@ -54,12 +52,13 @@ enum BitMode {
     Bit8 = 0x1 << 4,
 }
 
-impl<'a, T: Instance, D> Lcd<'a, T, Async, D>
+impl<'a, T, D> Lcd<'a, T, D>
 where
+    T: embedded_hal_async::i2c::I2c,
     D: DelayNs,
 {
     /// Create new instance with only the I2C and delay instance.
-    pub fn new(i2c: &'a mut embassy_rp::i2c::I2c<'a, T, Async>, delay: &'a mut D) -> Self {
+    pub fn new(i2c: T, delay: &'a mut D) -> Self {
         Self {
             i2c,
             delay,
@@ -98,7 +97,7 @@ where
     /// [datasheet]: https://www.openhacks.com/uploadsproductos/eone-1602a1.pdf
     /// [code]: https://github.com/jalhadi/i2c-hello-world/blob/main/src/main.rs
     /// [blog post]: https://badboi.dev/rust,/microcontrollers/2020/11/09/i2c-hello-world.html
-    pub async fn init(mut self) -> Result<Self, Error> {
+    pub async fn init(mut self) -> Result<Self, T::Error> {
         // Initial delay to wait for init after power on.
         self.delay.delay_ms(80);
 
@@ -145,25 +144,25 @@ where
         Ok(self)
     }
 
-    async fn write4bits(&mut self, data: u8) -> Result<(), Error> {
+    async fn write4bits(&mut self, data: u8) -> Result<(), T::Error> {
         self.i2c
-            .write_async(
+            .write(
                 self.address,
-                *&[data | DisplayControl::DisplayOn as u8 | self.backlight_state as u8],
+                &[data | DisplayControl::DisplayOn as u8 | self.backlight_state as u8],
             )
             .await?;
 
         self.i2c
-            .write_async(
+            .write(
                 self.address,
-                *&[DisplayControl::Off as u8 | self.backlight_state as u8],
+                &[DisplayControl::Off as u8 | self.backlight_state as u8],
             )
             .await?;
         self.delay.delay_us(700);
         Ok(())
     }
 
-    async fn send(&mut self, data: u8, mode: Mode) -> Result<(), Error> {
+    async fn send(&mut self, data: u8, mode: Mode) -> Result<(), T::Error> {
         let high_bits: u8 = data & 0xf0;
         let low_bits: u8 = (data << 4) & 0xf0;
         self.write4bits(high_bits | mode as u8).await?;
@@ -171,22 +170,22 @@ where
         Ok(())
     }
 
-    async fn command(&mut self, data: u8) -> Result<(), Error> {
+    async fn command(&mut self, data: u8) -> Result<(), T::Error> {
         self.send(data, Mode::Cmd).await
     }
 
-    pub async fn backlight(&mut self, backlight: Backlight) -> Result<(), Error> {
+    pub async fn backlight(&mut self, backlight: Backlight) -> Result<(), T::Error> {
         self.backlight_state = backlight;
         self.i2c
-            .write_async(
+            .write(
                 self.address,
-                *&[DisplayControl::DisplayOn as u8 | backlight as u8],
+                &[DisplayControl::DisplayOn as u8 | backlight as u8],
             )
             .await
     }
 
     /// Write string to display.
-    pub async fn write_str(&mut self, data: &str) -> Result<(), Error> {
+    pub async fn write_str(&mut self, data: &str) -> Result<(), T::Error> {
         for c in data.chars() {
             self.send(c as u8, Mode::Data).await?;
         }
@@ -194,21 +193,21 @@ where
     }
 
     /// Clear the display
-    pub async fn clear(&mut self) -> Result<(), Error> {
+    pub async fn clear(&mut self) -> Result<(), T::Error> {
         self.command(Commands::Clear as u8).await?;
         self.delay.delay_ms(2);
         Ok(())
     }
 
     /// Return cursor to upper left corner, i.e. (0,0).
-    pub async fn return_home(&mut self) -> Result<(), Error> {
+    pub async fn return_home(&mut self) -> Result<(), T::Error> {
         self.command(Commands::ReturnHome as u8).await?;
         self.delay.delay_ms(2);
         Ok(())
     }
 
     /// Set the cursor to (rows, col). Coordinates are zero-based.
-    pub async fn set_cursor(&mut self, row: u8, col: u8) -> Result<(), Error> {
+    pub async fn set_cursor(&mut self, row: u8, col: u8) -> Result<(), T::Error> {
         self.return_home().await?;
         let shift: u8 = row * 40 + col;
         for _i in 0..shift {
