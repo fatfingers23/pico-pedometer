@@ -824,59 +824,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embassy_rp_w_template"
-version = "0.1.0"
-dependencies = [
- "assign-resources",
- "byte-slice-cast 1.2.2",
- "cortex-m",
- "cortex-m-rt",
- "critical-section",
- "cyw43",
- "cyw43-pio",
- "defmt",
- "defmt-rtt",
- "display-interface",
- "display-interface-spi",
- "embassy-embedded-hal",
- "embassy-executor",
- "embassy-futures 0.1.1 (git+https://github.com/embassy-rs/embassy.git)",
- "embassy-net",
- "embassy-net-wiznet",
- "embassy-rp",
- "embassy-sync 0.6.0 (git+https://github.com/embassy-rs/embassy.git?rev=2b031756c6d705f58de972de48f7300b4fdc673c)",
- "embassy-time",
- "embassy-usb 0.2.0 (git+https://github.com/embassy-rs/embassy.git?rev=2b031756c6d705f58de972de48f7300b4fdc673c)",
- "embassy-usb-logger",
- "embedded-graphics",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "embedded-hal-bus",
- "embedded-io-async",
- "embedded-sdmmc",
- "embedded-storage",
- "fixed",
- "fixed-macro",
- "heapless 0.8.0",
- "libm",
- "log",
- "panic-probe",
- "pio",
- "pio-proc",
- "portable-atomic",
- "rand",
- "reqwless",
- "serde",
- "serde-json-core",
- "smart-leds",
- "st7789",
- "static_cell",
- "ufmt",
- "ufmt-write",
- "usbd-hid",
-]
-
-[[package]]
 name = "embedded-graphics"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1674,6 +1621,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6796ad771acdc0123d2a88dc428b5e38ef24456743ddb1744ed628f9815c096"
 dependencies = [
  "siphasher",
+]
+
+[[package]]
+name = "pico_pedometer"
+version = "0.1.0"
+dependencies = [
+ "assign-resources",
+ "byte-slice-cast 1.2.2",
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "cyw43",
+ "cyw43-pio",
+ "defmt",
+ "defmt-rtt",
+ "display-interface",
+ "display-interface-spi",
+ "embassy-embedded-hal",
+ "embassy-executor",
+ "embassy-futures 0.1.1 (git+https://github.com/embassy-rs/embassy.git)",
+ "embassy-net",
+ "embassy-net-wiznet",
+ "embassy-rp",
+ "embassy-sync 0.6.0 (git+https://github.com/embassy-rs/embassy.git?rev=2b031756c6d705f58de972de48f7300b4fdc673c)",
+ "embassy-time",
+ "embassy-usb 0.2.0 (git+https://github.com/embassy-rs/embassy.git?rev=2b031756c6d705f58de972de48f7300b4fdc673c)",
+ "embassy-usb-logger",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "embedded-hal-bus",
+ "embedded-io-async",
+ "embedded-sdmmc",
+ "embedded-storage",
+ "fixed",
+ "fixed-macro",
+ "heapless 0.8.0",
+ "libm",
+ "log",
+ "panic-probe",
+ "pio",
+ "pio-proc",
+ "portable-atomic",
+ "rand",
+ "reqwless",
+ "serde",
+ "serde-json-core",
+ "smart-leds",
+ "st7789",
+ "static_cell",
+ "ufmt",
+ "ufmt-write",
+ "usbd-hid",
 ]
 
 [[package]]

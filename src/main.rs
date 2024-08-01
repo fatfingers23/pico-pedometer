@@ -6,7 +6,7 @@ mod lcd_lcm1602_i2c;
 use adxl345::{DATA_FORMAT, POWER_CTL};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::i2c::{Async, Config, Error, Instance, InterruptHandler};
+use embassy_rp::i2c::{self, Async, Config, Error, Instance, InterruptHandler};
 use embassy_time::{Delay, Duration, Timer};
 
 use lcd_lcm1602_i2c::{Backlight, DisplayControl};
@@ -40,8 +40,14 @@ async fn main(_spawner: Spawner) {
     info!("setting up i2c ");
     let sda = p.PIN_20;
     let scl = p.PIN_21;
-    let mut i2c0_bus: embassy_rp::i2c::I2c<embassy_rp::peripherals::I2C0, embassy_rp::i2c::Async> =
-        embassy_rp::i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
+
+    let mut config = Config::default();
+    config.frequency = 50_000;
+    let mut i2c0_bus: &mut embassy_rp::i2c::I2c<
+        embassy_rp::peripherals::I2C0,
+        embassy_rp::i2c::Async,
+    > = &mut embassy_rp::i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, config);
+    // let mut i2c = i2c::I2c::new_blocking(p.I2C0, scl, sda, Config::default());
 
     // let mut accelerometer = Adxl345::new(i2c0_bus).await;
     info!("Done setting up i2c and sensors");
@@ -53,12 +59,12 @@ async fn main(_spawner: Spawner) {
     let mut delay = Delay;
     let lcd_builder = lcd_lcm1602_i2c::Lcd::new(&mut i2c0_bus, &mut delay)
         .address(lcd::ADDR)
-        .cursor_on(true); // no visible cursos
-                          // .rows(2); // two rows
+        .cursor_on(true) // no visible cursos
+        .rows(2); // two rows
 
-    let mut lcd = lcd_builder.init().unwrap();
-    // lcd.clear().unwrap();
-    // lcd.return_home();
+    let mut lcd = lcd_builder.init().await.unwrap();
+    lcd.clear().await;
+    // lcd.return_home().await;
     // lcd.clear().unwrap();
     // i2c0_bus.write_async(
     //     lcd::ADDR,
@@ -66,7 +72,9 @@ async fn main(_spawner: Spawner) {
     // );
 
     // lcd.return_home();
-    let result = lcd.write_str("Hello World");
+    let result = lcd.write_str("No this didn't").await;
+    lcd.set_cursor(1, 0).await;
+    let result = lcd.write_str("take 6 hours").await;
     if let Err(e) = result {
         info!("error: {:?}", e);
     }

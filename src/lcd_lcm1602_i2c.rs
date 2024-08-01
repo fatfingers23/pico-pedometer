@@ -1,51 +1,18 @@
 #![no_std]
-//! Driver to write characters to LCD displays with a LM1602 connected via i2c like [this one] with
-//! 16x2 characters. It requires a I2C instance implementing [`embedded_hal::blocking::i2c::Write`]
-//! and a instance to delay execution with [`embedded_hal::blocking::delay::DelayMs`].
-//!
-//! Usage:
-//! ```
-//! const LCD_ADDRESS: u8 = 0x27; // Address depends on hardware, see link below
-//!
-//! // Create a I2C instance, needs to implement embedded_hal::blocking::i2c::Write, this
-//! // particular uses the arduino_hal crate for avr microcontrollers like the arduinos.
-//! let dp = arduino_hal::Peripherals::take().unwrap();
-//! let pins = arduino_hal::pins!(dp);
-//! let mut i2c = arduino_hal::I2c::new(
-//!     dp.TWI, //
-//!     pins.a4.into_pull_up_input(), // use respective pins
-//!     pins.a5.into_pull_up_input(),
-//!     50000,
-//! );
-//! let mut delay = arduino_hal::Delay::new();
-//!
-//! let mut lcd = lcd_lcm1602_i2c::Lcd::new(&mut i2c, &mut delay)
-//!     .address(LCD_ADDRESS)
-//!     .cursor_on(false) // no visible cursos
-//!     .rows(2) // two rows
-//!     .init().unwrap();
-//! ```
-//!
-//! This [site][lcd address] describes how to find the address of your LCD devices.
-//!
-//! [this one]: https://funduinoshop.com/elektronische-module/displays/lcd/16x02-i2c-lcd-modul-hintergrundbeleuchtung-blau
-//! [lcd address]: https://www.ardumotive.com/i2clcden.html
 
-use defmt::info;
-use embassy_rp::i2c;
-//use embedded_hal::blocking::i2c::Write;
+//This is the lcd-lcm1602-i2c crate, but async for emabassy-rp
+//All rights and credit to the original author
+//https://github.com/KuabeM/lcd-lcm1602-i2c/tree/master
+
+use embassy_rp::i2c::{Async, Error, Instance};
 use embedded_hal_1::delay::DelayNs;
-use embedded_hal_1::i2c::I2c;
-
-use ufmt_write::uWrite;
 
 /// API to write to the LCD.
-pub struct Lcd<'a, I, D>
+pub struct Lcd<'a, T: embassy_rp::i2c::Instance, Async: embassy_rp::i2c::Mode, D>
 where
-    I: I2c,
     D: DelayNs,
 {
-    i2c: &'a mut I,
+    i2c: &'a mut embassy_rp::i2c::I2c<'a, T, Async>,
     address: u8,
     rows: u8,
     delay: &'a mut D,
@@ -87,13 +54,12 @@ enum BitMode {
     Bit8 = 0x1 << 4,
 }
 
-impl<'a, I, D> Lcd<'a, I, D>
+impl<'a, T: Instance, D> Lcd<'a, T, Async, D>
 where
-    I: I2c,
     D: DelayNs,
 {
     /// Create new instance with only the I2C and delay instance.
-    pub fn new(i2c: &'a mut I, delay: &'a mut D) -> Self {
+    pub fn new(i2c: &'a mut embassy_rp::i2c::I2c<'a, T, Async>, delay: &'a mut D) -> Self {
         Self {
             i2c,
             delay,
@@ -132,22 +98,22 @@ where
     /// [datasheet]: https://www.openhacks.com/uploadsproductos/eone-1602a1.pdf
     /// [code]: https://github.com/jalhadi/i2c-hello-world/blob/main/src/main.rs
     /// [blog post]: https://badboi.dev/rust,/microcontrollers/2020/11/09/i2c-hello-world.html
-    pub fn init(mut self) -> Result<Self, I::Error> {
+    pub async fn init(mut self) -> Result<Self, Error> {
         // Initial delay to wait for init after power on.
         self.delay.delay_ms(80);
 
         // Init with 8 bit mode
         let mode_8bit = Mode::FunctionSet as u8 | BitMode::Bit8 as u8;
-        self.write4bits(mode_8bit)?;
+        self.write4bits(mode_8bit).await?;
         self.delay.delay_ms(5);
-        self.write4bits(mode_8bit)?;
+        self.write4bits(mode_8bit).await?;
         self.delay.delay_ms(5);
-        self.write4bits(mode_8bit)?;
+        self.write4bits(mode_8bit).await?;
         self.delay.delay_ms(5);
 
         // Switch to 4 bit mode
         let mode_4bit = Mode::FunctionSet as u8 | BitMode::Bit4 as u8;
-        self.write4bits(mode_4bit)?;
+        self.write4bits(mode_4bit).await?;
 
         // Function set command
         let lines = if self.rows == 0 { 0x00 } else { 0x08 };
@@ -155,7 +121,8 @@ where
             Mode::FunctionSet as u8 |
             // 5x8 display: 0x00, 5x10: 0x4
             lines, // Two line display
-        )?;
+        )
+        .await?;
 
         let display_ctrl = if self.cursor_on {
             DisplayControl::DisplayOn as u8 | DisplayControl::CursosOn as u8
@@ -167,101 +134,86 @@ where
         } else {
             display_ctrl
         };
-        self.command(Mode::DisplayControl as u8 | display_ctrl)?;
-        self.command(Mode::Cmd as u8 | Commands::Clear as u8)?; // Clear Display
+        self.command(Mode::DisplayControl as u8 | display_ctrl)
+            .await?;
+        self.command(Mode::Cmd as u8 | Commands::Clear as u8)
+            .await?; // Clear Display
 
         // Entry right: shifting cursor moves to right
-        self.command(0x04)?;
-        self.backlight(self.backlight_state)?;
+        self.command(0x04).await?;
+        self.backlight(self.backlight_state).await?;
         Ok(self)
     }
 
-    fn write4bits(&mut self, data: u8) -> Result<(), I::Error> {
-        self.i2c.write(
-            self.address,
-            &[data | DisplayControl::DisplayOn as u8 | self.backlight_state as u8],
-        )?;
-        self.i2c.write(
-            self.address,
-            &[DisplayControl::Off as u8 | self.backlight_state as u8],
-        )?;
+    async fn write4bits(&mut self, data: u8) -> Result<(), Error> {
+        self.i2c
+            .write_async(
+                self.address,
+                *&[data | DisplayControl::DisplayOn as u8 | self.backlight_state as u8],
+            )
+            .await?;
+
+        self.i2c
+            .write_async(
+                self.address,
+                *&[DisplayControl::Off as u8 | self.backlight_state as u8],
+            )
+            .await?;
         self.delay.delay_us(700);
         Ok(())
     }
 
-    fn send(&mut self, data: u8, mode: Mode) -> Result<(), I::Error> {
+    async fn send(&mut self, data: u8, mode: Mode) -> Result<(), Error> {
         let high_bits: u8 = data & 0xf0;
         let low_bits: u8 = (data << 4) & 0xf0;
-        self.write4bits(high_bits | mode as u8)?;
-        self.write4bits(low_bits | mode as u8)?;
+        self.write4bits(high_bits | mode as u8).await?;
+        self.write4bits(low_bits | mode as u8).await?;
         Ok(())
     }
 
-    fn command(&mut self, data: u8) -> Result<(), I::Error> {
-        self.send(data, Mode::Cmd)
+    async fn command(&mut self, data: u8) -> Result<(), Error> {
+        self.send(data, Mode::Cmd).await
     }
 
-    pub fn backlight(&mut self, backlight: Backlight) -> Result<(), I::Error> {
+    pub async fn backlight(&mut self, backlight: Backlight) -> Result<(), Error> {
         self.backlight_state = backlight;
-        self.i2c.write(
-            self.address,
-            &[DisplayControl::DisplayOn as u8 | backlight as u8],
-        )
+        self.i2c
+            .write_async(
+                self.address,
+                *&[DisplayControl::DisplayOn as u8 | backlight as u8],
+            )
+            .await
     }
 
     /// Write string to display.
-    pub fn write_str(&mut self, data: &str) -> Result<(), I::Error> {
-        self.send(0x21, Mode::Data)?;
-        // for c in data.chars() {
-        //     info!("writing char: {:?}", c as u8);
-        //     self.send(c as u8, Mode::Data)?;
-        //     // self.write_char(c);
-        // }
+    pub async fn write_str(&mut self, data: &str) -> Result<(), Error> {
+        for c in data.chars() {
+            self.send(c as u8, Mode::Data).await?;
+        }
         Ok(())
     }
 
     /// Clear the display
-    pub fn clear(&mut self) -> Result<(), I::Error> {
-        self.command(Commands::Clear as u8)?;
+    pub async fn clear(&mut self) -> Result<(), Error> {
+        self.command(Commands::Clear as u8).await?;
         self.delay.delay_ms(2);
         Ok(())
     }
 
     /// Return cursor to upper left corner, i.e. (0,0).
-    pub fn return_home(&mut self) -> Result<(), I::Error> {
-        self.command(Commands::ReturnHome as u8)?;
+    pub async fn return_home(&mut self) -> Result<(), Error> {
+        self.command(Commands::ReturnHome as u8).await?;
         self.delay.delay_ms(2);
         Ok(())
     }
 
     /// Set the cursor to (rows, col). Coordinates are zero-based.
-    pub fn set_cursor(&mut self, row: u8, col: u8) -> Result<(), I::Error> {
-        self.return_home()?;
+    pub async fn set_cursor(&mut self, row: u8, col: u8) -> Result<(), Error> {
+        self.return_home().await?;
         let shift: u8 = row * 40 + col;
         for _i in 0..shift {
-            self.command(Commands::ShiftCursor as u8)?;
+            self.command(Commands::ShiftCursor as u8).await?;
         }
         Ok(())
-    }
-
-    pub fn write_char(&mut self, char: char) {
-        self.write_two(0x01, char as u8)
-    }
-
-    // Send two bytes to the display
-    fn write_two(&mut self, byte1: u8, byte2: u8) {
-        self.i2c.write(self.address, &[byte1, byte2]);
-    }
-}
-
-impl<'a, I, D> uWrite for Lcd<'a, I, D>
-where
-    I: I2c,
-    D: DelayNs,
-{
-    type Error = I::Error;
-
-    fn write_str(&mut self, s: &str) -> Result<(), Self::Error> {
-        self.write_str(s)
     }
 }
